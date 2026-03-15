@@ -91,23 +91,58 @@
 ;; send task to daily planner  with D
 ;; -------------------------------------------------------------------
 
+(defun my/sort-section-by-time (section-name)
+  "Trie les items d'une section par heure <HH:MM> dans le buffer courant (déjà narrowed au jour)."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward (regexp-quote section-name) nil t)
+      (let* ((section-start (progn (forward-line 1) (point)))
+             (section-end   (or (save-excursion
+                                  (when (re-search-forward "^ [A-Z]" nil t)
+                                    (line-beginning-position)))
+                                (point-max)))
+             (raw (buffer-substring section-start section-end))
+             (lines (split-string raw "\n"))
+             (items (seq-filter (lambda (l) (string-match-p "^- " l)) lines))
+             (no-time (seq-filter (lambda (l) (not (string-match "<\\([0-9]\\{2\\}:[0-9]\\{2\\}\\)>" l))) items))
+             (with-time (seq-filter (lambda (l) (string-match "<\\([0-9]\\{2\\}:[0-9]\\{2\\}\\)>" l)) items))
+             (sorted (sort with-time
+                           (lambda (a b)
+                             (string-match "<\\([0-9]\\{2\\}:[0-9]\\{2\\}\\)>" a)
+                             (let ((ta (match-string 1 a)))
+                               (string-match "<\\([0-9]\\{2\\}:[0-9]\\{2\\}\\)>" b)
+                               (string< ta (match-string 1 b))))))
+             (all (append sorted no-time))
+             (new-content (if all (concat (mapconcat #'identity all "\n") "\n") "")))
+        (delete-region section-start section-end)
+        (goto-char section-start)
+        (insert new-content)))))
+
 (defun my/agenda-to-daily-planner ()
-  "Envoie la tâche sous le curseur vers le daily planner.
-Crée un lien [[id:...][titre]] dans la section choisie."
+  "Envoie la tâche sous le curseur vers le daily planner (Urgent ou Not Urgent)."
   (interactive)
   (let* ((hdm (org-get-at-bol 'org-hd-marker))
          (_ (unless hdm (user-error "Pas de tâche sous le curseur")))
          (title (org-with-point-at hdm (org-get-heading t t t t)))
-         (id    (org-with-point-at hdm
-                  (org-id-get-create)))
-         (section (completing-read
-                   "Section: "
-                   '(" Urgent"
-                     " Not urgent"
-                     " Delegate"
-                     " Delete")
-                   nil t nil nil " Urgent"))
-         (link    (format "- [ ] [[id:%s][%s]]" id title))
+         (id    (org-with-point-at hdm (org-id-get-create)))
+         (scheduled-time
+          (org-with-point-at hdm
+            (let ((scheduled (org-entry-get nil "SCHEDULED")))
+              (when (and scheduled
+                         (string-match "[0-9]\\{2\\}:[0-9]\\{2\\}" scheduled))
+                (match-string 0 scheduled)))))
+         (urgent (y-or-n-p "Urgent ? "))
+         (time   (cond
+                  ((not urgent) nil)
+                  (scheduled-time scheduled-time)
+                  (t (let ((input (read-string "Heure (HH:MM): ")))
+                       (if (string-match-p "^[0-9]\\{2\\}:[0-9]\\{2\\}$" input)
+                           input
+                         (user-error "Format invalide, attendu HH:MM"))))))
+         (section (if urgent " Urgent" " Not Urgent"))
+         (link    (if time
+                      (format "- [ ] <%s> [[id:%s][%s]]" time id title)
+                    (format "- [ ] [[id:%s][%s]]" id title)))
          (today   (format-time-string "%Y-%m-%d"))
          (planner "~/org/daily-planner.org"))
 
@@ -122,12 +157,14 @@ Crée un lien [[id:...][titre]] dans la section choisie."
                   (end-of-line)
                   (insert "\n" link))
               (goto-char (point-max))
-              (insert (format "\n%s\n%s" section link))))
+              (insert (format "\n%s\n%s" section link)))
+            (when urgent
+              (my/sort-section-by-time section)))
         (user-error "no entry for today, create a template with spc d d")))
 
     (let ((buf (find-file-noselect (expand-file-name planner))))
       (with-current-buffer buf (save-buffer)))
-    (message "✓ \"%s\" ajouté dans %s" title section)))
+    (message "✓ \"%s\" [%s] → %s" title (or time "sans heure") section)))
 
 
 
@@ -251,10 +288,6 @@ WEEKLY SHUTDOWN [/]
            " Urgent:
 
  Not Urgent:
-
- Delegate:
-
- Delete:
 "
            :empty-lines 1
            :immediate-finish t))))
