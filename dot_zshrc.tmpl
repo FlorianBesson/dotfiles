@@ -81,3 +81,7 @@ alias gl='git log --oneline --graph --decorate'
 alias ls='ls --color=auto'
 alias ll='ls -lah'
 alias grep='grep --color=auto'
+
+# org
+alias org-push='cd ~/notes && git add -A && git commit -m "sync $(date +%F-%H%M)" && git push'
+alias org-pull='cd ~/notes && git pull'

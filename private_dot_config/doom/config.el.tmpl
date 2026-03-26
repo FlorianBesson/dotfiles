@@ -7,7 +7,7 @@
 
 (setq org-gcal-client-id "97146172973-noealff3kucah5oo7qbr6f19gsb0sbmm.apps.googleusercontent.com"
       org-gcal-client-secret "{{ .org_gcal_client_secret }}"
-      org-gcal-fetch-file-alist '(("bessonflorian50@gmail.com" . "~/org/gcal.org")))
+      org-gcal-fetch-file-alist '(("bessonflorian50@gmail.com" . "~/notes/org/gcal.org")))
 
 ;; theme
 (setq doom-theme 'doom-earl-grey)
@@ -31,7 +31,7 @@
 ;; orgmode + orgmode
 ;; -------------------------------------------------------------------
 (after! org-roam
-  (setq org-roam-directory (expand-file-name "~/org-roam/"))
+  (setq org-roam-directory (expand-file-name "~/notes/org-roam/"))
   (setq org-roam-dailies-directory "daily/")
   (org-roam-db-autosync-mode 1))
 
@@ -42,8 +42,7 @@
   ;; my file
   (setq org-agenda-files
         (append
-         (directory-files-recursively "~/org" "\\.org$")
-         (directory-files-recursively "~/notes/org" "\\.org$")))
+         (directory-files-recursively "~/notes" "\\.org$")))
 
 ;; -------------------------------------------------------------------
 ;; org agenda
@@ -144,7 +143,7 @@
                       (format "- [ ] <%s> [[id:%s][%s]]" time id title)
                     (format "- [ ] [[id:%s][%s]]" id title)))
          (today   (format-time-string "%Y-%m-%d"))
-         (planner "~/org/daily-planner.org"))
+         (planner "~/notes/org/daily-planner.org"))
 
     (with-current-buffer (find-file-noselect (expand-file-name planner))
       (goto-char (point-min))
@@ -204,13 +203,35 @@
         (insert (format "Last reviewed on %s" now))))
     (save-buffer)))
 
+(defvar my/wake-up-time nil
+  "Heure de réveil saisie lors de la création du daily planner.")
+
+(defun my/open-daily-planner ()
+  "Ouvre le daily planner. Prompt l'heure de réveil seulement si l'entrée du jour n'existe pas encore."
+  (interactive)
+  (let* ((today (format-time-string "%Y-%m-%d"))
+         (planner (expand-file-name "~/notes/org/daily-planner.org"))
+         (already-exists
+          (when (file-exists-p planner)
+            (with-temp-buffer
+              (insert-file-contents planner)
+              (re-search-forward (regexp-quote today) nil t)))))
+    (if already-exists
+        (find-file planner)
+      (let ((input (read-string "Heure de réveil (HH:MM): ")))
+        (if (string-match-p "^[0-9]\\{2\\}:[0-9]\\{2\\}$" input)
+            (progn
+              (setq my/wake-up-time input)
+              (org-capture nil "d"))
+          (user-error "Format invalide, attendu HH:MM"))))))
+
 (defun my/daily-planner-tree ()
   "Navigue ou crée la hiérarchie Année > Mois > Semaine > Jour dans daily-planner.org."
   (let* ((year   (format-time-string "%Y"))
          (month  (format-time-string "%Y-%m %B"))
          (week   (format-time-string "Week %W"))
          (day    (format-time-string "%Y-%m-%d %A")))
-    (find-file (expand-file-name "~/org/daily-planner.org"))
+    (find-file (expand-file-name "~/notes/org/daily-planner.org"))
     (goto-char (point-min))
     (cl-flet ((find-or-create (level title)
                 (unless (re-search-forward
@@ -285,7 +306,9 @@ WEEKLY SHUTDOWN [/]
            :immediate-finish t)
           ("d" "Daily Planner" plain
            (function my/daily-planner-tree)
-           " Urgent:
+           " Réveil: %(or my/wake-up-time \"?\")
+
+ Urgent:
 
  Not Urgent:
 "
@@ -293,7 +316,7 @@ WEEKLY SHUTDOWN [/]
            :immediate-finish t))))
 
 (map! :leader
-      :desc "Daily Planner" "d d" #'(lambda () (interactive) (org-capture nil "d"))
+      :desc "Daily Planner" "d d" #'my/open-daily-planner
       :desc "Weekly Review" "d w" #'(lambda () (interactive) (org-capture nil "w"))
       :desc "New Goal" "d g" #'my/org-capture-goal
       :desc "Review Goal" "d r" #'my/goal-update-review)
