@@ -183,7 +183,9 @@ bindsym $mod+r mode "resize"
 # finds out, if available)
 bar {
 	#status_command i3status| ~/.config/i3/i3spotifystatus/pystatus.py
-       status_command i3status 
+        status_command i3status --config ~/.config/i3/i3status.conf
+        height 28
+        font pango:monospace 12
 }
 # Screenshots
 exec --no-startup-id flameshot
@@ -248,7 +250,7 @@ mode "$mode_gaps_outer" {
 
 bindsym $mod+z exec rofi -show run -lines 20 -eh 1.3 -opacity "85" -bw 0 -font "System San Francisco Display 10"
 
-exec_always feh --bg-scale /home/florian/Images/wallpapers/cat.png
+exec_always feh --bg-scale /home/ketzon/Images/wallpapers/cat.png
 
 
 # Sreen brightness controls
