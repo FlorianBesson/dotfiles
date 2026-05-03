@@ -1,14 +1,21 @@
 #!/bin/bash
 
-if [[ "$(uname)" == "Darwin" ]]; then
+if command -v fd >/dev/null 2>&1; then
     FD="fd"
+elif command -v fdfind >/dev/null 2>&1; then
+    FD="fdfind"
+else
+    echo "Error: Neither fd nor fdfind found. Please install one of them."
+    exit 1
+fi
+
+if [[ "$(uname)" == "Darwin" ]]; then
     DIRS=(
         "$HOME/Documents"
         "$HOME/Developer"
         "$HOME"
     )
 else
-    FD="fd"
     DIRS=(
         "$HOME/Documents"
         "$HOME"

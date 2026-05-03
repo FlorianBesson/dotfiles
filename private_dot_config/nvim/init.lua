@@ -337,6 +337,7 @@ vim.api.nvim_create_autocmd("FileType", {
 
 local map = vim.keymap.set
 
+map("i", "jk", "<Esc>", { desc = "Escape" })
 map("n", "<leader>w", "<Cmd>update<CR>",       { desc = "Write" })
 map("n", "<leader>q", "<Cmd>quit<CR>",          { desc = "Quit" })
 map("n", "<leader>Q", "<Cmd>wqa<CR>",           { desc = "Write all + quit all" })

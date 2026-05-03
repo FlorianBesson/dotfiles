@@ -1,0 +1,774 @@
+#!/usr/bin/env bun
+
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { basename, join, relative } from "node:path";
+import { spawnSync } from "node:child_process";
+
+type Entry = {
+  tool: string;
+  kind: string;
+  key: string;
+  action: string;
+  desc: string;
+  file: string;
+  line: number;
+};
+
+const home = process.env.HOME || "";
+const config = `${home}/.config`;
+const chezmoi = `${home}/.local/share/chezmoi`;
+const webDir = `${config}/dotdash`;
+const webFile = `${webDir}/index.html`;
+const entries: Entry[] = [];
+
+function commandExists(command: string): boolean {
+  return spawnSync("sh", ["-lc", `command -v ${shellQuote(command)} >/dev/null 2>&1`]).status === 0;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function readLines(file: string): string[] {
+  if (!existsSync(file)) return [];
+  return readFileSync(file, "utf8").split(/\r?\n/);
+}
+
+function add(entry: Entry) {
+  if (!entry.action.trim()) return;
+  entries.push({
+    ...entry,
+    key: entry.key.trim() || "-",
+    action: entry.action.trim(),
+    desc: entry.desc.trim(),
+  });
+}
+
+function rel(file: string): string {
+  if (file.startsWith(home)) return `~/${relative(home, file)}`;
+  return file;
+}
+
+function cleanCommand(value: string): string {
+  return value
+    .replaceAll("\\;", ";")
+    .replace(/^run(?:-shell)?\s+/, "")
+    .replace(/^exec\s+(?:--no-startup-id\s+)?/, "")
+    .replace(/^neww(?:-window)?\s+/, "new-window ")
+    .trim();
+}
+
+function parseTmux(file: string) {
+  const lines = readLines(file);
+  const prefix = lines.find((line) => line.match(/^\s*set(?:-option)?\s+-g\s+prefix\s+/))
+    ?.replace(/^\s*set(?:-option)?\s+-g\s+prefix\s+/, "")
+    .replaceAll('"', "")
+    .trim() || "prefix";
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+
+    const match = trimmed.match(/^bind(?:-key)?(?:\s+-[A-Za-z])*\s+(\S+)\s+(.+)$/);
+    if (!match) return;
+
+    add({
+      tool: "tmux",
+      kind: "bind",
+      key: `${prefix} ${match[1]}`,
+      action: cleanCommand(match[2]),
+      desc: "",
+      file,
+      line: index + 1,
+    });
+  });
+}
+
+function parseZsh(file: string) {
+  readLines(file).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+
+    const alias = trimmed.match(/^alias\s+([A-Za-z0-9_-]+)=['"](.+)['"]$/);
+    if (alias) {
+      add({
+        tool: "zsh",
+        kind: "alias",
+        key: alias[1],
+        action: alias[2],
+        desc: "",
+        file,
+        line: index + 1,
+      });
+      return;
+    }
+
+    const bindkey = trimmed.match(/^bindkey\s+['"]?([^'"\s]+)['"]?\s+(.+)$/);
+    if (bindkey) {
+      add({
+        tool: "zsh",
+        kind: "bindkey",
+        key: bindkey[1],
+        action: bindkey[2],
+        desc: "",
+        file,
+        line: index + 1,
+      });
+      return;
+    }
+
+    const fn = trimmed.match(/^([A-Za-z_][A-Za-z0-9_-]*)\(\)\s*\{/);
+    if (fn) {
+      add({
+        tool: "zsh",
+        kind: "function",
+        key: fn[1],
+        action: "function",
+        desc: "",
+        file,
+        line: index + 1,
+      });
+    }
+  });
+}
+
+function parseI3(file: string) {
+  readLines(file).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+
+    const bind = trimmed.match(/^bindsym(?:\s+--\S+)*\s+(\S+)\s+(.+)$/);
+    if (bind) {
+      add({
+        tool: "i3",
+        kind: bind[2].startsWith("exec") ? "bind exec" : "bind",
+        key: bind[1],
+        action: cleanCommand(bind[2]),
+        desc: "",
+        file,
+        line: index + 1,
+      });
+      return;
+    }
+
+    const startup = trimmed.match(/^exec\s+(.+)$/);
+    if (startup) {
+      add({
+        tool: "i3",
+        kind: "startup",
+        key: "startup",
+        action: cleanCommand(startup[0]),
+        desc: "",
+        file,
+        line: index + 1,
+      });
+    }
+  });
+}
+
+function parseKitty(file: string) {
+  readLines(file).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+    const match = trimmed.match(/^map\s+(\S+)\s+(.+)$/);
+    if (!match) return;
+    add({
+      tool: "kitty",
+      kind: "map",
+      key: match[1],
+      action: match[2],
+      desc: "",
+      file,
+      line: index + 1,
+    });
+  });
+}
+
+function parseDoom(file: string) {
+  readLines(file).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith(";;")) return;
+
+    const described = trimmed.match(/:desc\s+"([^"]+)"\s+"([^"]+)"\s+(.+)$/);
+    if (described) {
+      add({
+        tool: "doom",
+        kind: "keymap",
+        key: described[2],
+        action: described[3],
+        desc: described[1],
+        file,
+        line: index + 1,
+      });
+      return;
+    }
+
+    const direct = trimmed.match(/^\(map!\s+"([^"]+)"\s+(.+)\)$/);
+    if (direct) {
+      add({
+        tool: "doom",
+        kind: "keymap",
+        key: direct[1],
+        action: direct[2],
+        desc: "",
+        file,
+        line: index + 1,
+      });
+    }
+  });
+}
+
+function luaStrings(text: string): string[] {
+  const values: string[] = [];
+  const pattern = /(["'])((?:\\.|(?!\1).)*)\1/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    values.push(match[2].replace(/\\(["'])/g, "$1"));
+  }
+  return values;
+}
+
+function extractDesc(line: string): string {
+  return line.match(/desc\s*=\s*["']([^"']+)["']/)?.[1] || "";
+}
+
+function parseNvim(file: string) {
+  const modes = new Set(["n", "v", "x", "i", "s", "t", "o", "c"]);
+
+  readLines(file).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("--")) return;
+
+    const pluginKey = trimmed.match(/^\{\s*["']([^"']+)["']\s*,.*desc\s*=\s*["']([^"']+)["']/);
+    if (pluginKey) {
+      add({
+        tool: "nvim",
+        kind: "plugin key",
+        key: pluginKey[1],
+        action: pluginKey[2],
+        desc: pluginKey[2],
+        file,
+        line: index + 1,
+      });
+      return;
+    }
+
+    const mapCall = trimmed.match(/^(?:vim\.keymap\.set|map)\s*\((.+)$/);
+    if (!mapCall) return;
+    if (trimmed.includes(" .. ")) return;
+
+    const strings = luaStrings(trimmed);
+    if (strings.length < 2) return;
+
+    let key = "";
+    let action = "";
+
+    if (trimmed.includes("({")) {
+      const firstNonMode = strings.findIndex((value) => !modes.has(value));
+      if (firstNonMode < 0) return;
+      key = strings[firstNonMode];
+      action = strings[firstNonMode + 1] || extractDesc(trimmed) || trimmed;
+    } else if (modes.has(strings[0])) {
+      key = strings[1];
+      action = strings[2] || extractDesc(trimmed) || trimmed;
+    } else {
+      key = strings[0];
+      action = strings[1] || extractDesc(trimmed) || trimmed;
+    }
+
+    const desc = extractDesc(trimmed);
+    if (desc && (!action || action === trimmed || action === desc)) action = desc;
+
+    add({
+      tool: "nvim",
+      kind: "keymap",
+      key,
+      action,
+      desc,
+      file,
+      line: index + 1,
+    });
+  });
+}
+
+function parseScript(file: string) {
+  const name = basename(file).replace(/^executable_/, "");
+  add({
+    tool: "script",
+    kind: "executable",
+    key: name,
+    action: file.startsWith(chezmoi) ? `~/.config/scripts/${name}` : file,
+    desc: firstComment(file),
+    file,
+    line: 1,
+  });
+}
+
+function firstComment(file: string): string {
+  for (const line of readLines(file).slice(1, 12)) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("#") && !trimmed.startsWith("#!")) return trimmed.replace(/^#\s*/, "");
+  }
+  return "";
+}
+
+function parseOpencodeCommands(dir: string) {
+  if (!existsSync(dir)) return;
+  for (const name of readdirSync(dir).sort()) {
+    if (!name.endsWith(".md")) continue;
+    const file = join(dir, name);
+    const command = `/${name.replace(/\.md$/, "")}`;
+    const firstHeading = readLines(file).find((line) => line.startsWith("# "));
+    add({
+      tool: "opencode",
+      kind: "command",
+      key: command,
+      action: command,
+      desc: firstHeading?.replace(/^#\s*/, "") || "",
+      file,
+      line: 1,
+    });
+  }
+}
+
+function parseKnownFiles() {
+  const candidates = [
+    [parseTmux, `${home}/.tmux.conf`],
+    [parseTmux, `${chezmoi}/dot_tmux.conf`],
+    [parseZsh, `${home}/.zshrc`],
+    [parseZsh, `${chezmoi}/dot_zshrc.tmpl`],
+    [parseI3, `${config}/i3/config`],
+    [parseI3, `${chezmoi}/private_dot_config/i3/config`],
+    [parseKitty, `${config}/kitty/kitty.conf`],
+    [parseKitty, `${chezmoi}/private_dot_config/kitty/kitty.conf`],
+    [parseDoom, `${config}/doom/config.el`],
+    [parseDoom, `${chezmoi}/private_dot_config/doom/config.el.tmpl`],
+    [parseNvim, `${config}/nvim/init.lua`],
+    [parseNvim, `${chezmoi}/private_dot_config/nvim/init.lua`],
+  ] as const;
+
+  for (const [parser, file] of candidates) {
+    if (existsSync(file)) parser(file);
+  }
+
+  for (const scriptDir of [`${config}/scripts`, `${chezmoi}/private_dot_config/scripts`]) {
+    if (!existsSync(scriptDir)) continue;
+    for (const name of readdirSync(scriptDir).sort()) {
+      const file = join(scriptDir, name);
+      if (statSync(file).isFile()) parseScript(file);
+    }
+  }
+
+  parseOpencodeCommands(`${config}/opencode/command`);
+}
+
+function dedupe() {
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    const key = [entry.tool, entry.kind, entry.key, entry.action].join("\0");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function format(entry: Entry): string {
+  const desc = entry.desc ? `  # ${entry.desc}` : "";
+  return `${entry.tool.padEnd(9)} ${entry.kind.padEnd(11)} ${entry.key.padEnd(22)} ${entry.action}${desc}`;
+}
+
+function copy(text: string) {
+  if (commandExists("tmux")) spawnSync("tmux", ["set-buffer", "-w", "--", text], { stdio: "ignore" });
+  if (commandExists("wl-copy") && process.env.WAYLAND_DISPLAY) {
+    spawnSync("wl-copy", { input: text });
+    return;
+  }
+  if (commandExists("xclip") && process.env.DISPLAY) {
+    spawnSync("xclip", ["-selection", "clipboard"], { input: text });
+    return;
+  }
+}
+
+function printTable(items: Entry[]) {
+  console.log(`dotdash: ${items.length} commandes/bindings trouves\n`);
+  for (const entry of items) console.log(format(entry));
+}
+
+function htmlEscape(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function renderHtml(items: Entry[]): string {
+  const data = items.map((entry) => ({ ...entry, file: rel(entry.file) }));
+  const generatedAt = new Date().toLocaleString("fr-FR");
+  return `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dotdash</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f3ed;
+      --panel: #fffdf8;
+      --text: #191815;
+      --muted: #68635b;
+      --line: #ded8ce;
+      --accent: #0f766e;
+      --accent-soft: #d9f2ed;
+      --code: #22201c;
+      --shadow: 0 12px 34px rgba(36, 31, 24, 0.10);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.4;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--line);
+      background: rgba(246, 243, 237, 0.94);
+      backdrop-filter: blur(12px);
+    }
+    .top {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 22px 22px 16px;
+      display: grid;
+      gap: 16px;
+    }
+    .title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    h1 {
+      margin: 0;
+      font-size: 32px;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .search-row {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+    }
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+      padding: 12px 14px;
+      outline: none;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+    }
+    input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .count {
+      color: var(--muted);
+      white-space: nowrap;
+      font-size: 14px;
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+    .tab {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--text);
+      padding: 9px 12px;
+      font: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .tab.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: #094842;
+    }
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 22px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+      gap: 14px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 14px;
+      min-width: 0;
+      display: grid;
+      gap: 10px;
+    }
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: start;
+    }
+    .key {
+      font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: 15px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    .badge {
+      border-radius: 999px;
+      background: #eee8dd;
+      color: #4f4940;
+      padding: 3px 8px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .action {
+      font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+      color: var(--code);
+      background: #f2ede4;
+      border-radius: 6px;
+      padding: 9px;
+      overflow-wrap: anywhere;
+      font-size: 13px;
+    }
+    .desc {
+      color: var(--muted);
+      min-height: 20px;
+    }
+    .foot {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .copy {
+      border: 1px solid var(--line);
+      background: transparent;
+      border-radius: 7px;
+      cursor: pointer;
+      padding: 6px 8px;
+      color: var(--text);
+    }
+    .empty {
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 30px;
+      color: var(--muted);
+      text-align: center;
+      background: rgba(255, 253, 248, 0.55);
+    }
+    @media (max-width: 720px) {
+      h1 { font-size: 26px; }
+      .search-row { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+      main, .top { padding-left: 14px; padding-right: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="top">
+      <div class="title-row">
+        <div>
+          <h1>Dotdash</h1>
+          <div class="meta">${htmlEscape(String(data.length))} raccourcis et commandes depuis tes dotfiles · ${htmlEscape(generatedAt)}</div>
+        </div>
+      </div>
+      <div class="search-row">
+        <input id="search" type="search" placeholder="Chercher un raccourci, une commande, un logiciel..." autofocus>
+        <div class="count" id="count"></div>
+      </div>
+      <div class="tabs" id="tabs"></div>
+    </div>
+  </header>
+  <main>
+    <div class="grid" id="grid"></div>
+  </main>
+  <script>
+    const entries = ${JSON.stringify(data)};
+    let activeTool = "all";
+    const search = document.getElementById("search");
+    const tabs = document.getElementById("tabs");
+    const grid = document.getElementById("grid");
+    const count = document.getElementById("count");
+    const tools = ["all", ...Array.from(new Set(entries.map((entry) => entry.tool))).sort()];
+
+    function label(tool) {
+      if (tool === "all") return "Tout";
+      return tool;
+    }
+
+    function toolCount(tool) {
+      if (tool === "all") return entries.length;
+      return entries.filter((entry) => entry.tool === tool).length;
+    }
+
+    function renderTabs() {
+      tabs.innerHTML = "";
+      for (const tool of tools) {
+        const button = document.createElement("button");
+        button.className = "tab" + (tool === activeTool ? " active" : "");
+        button.textContent = label(tool) + " " + toolCount(tool);
+        button.addEventListener("click", () => {
+          activeTool = tool;
+          renderTabs();
+          render();
+        });
+        tabs.appendChild(button);
+      }
+    }
+
+    function matches(entry, query) {
+      if (activeTool !== "all" && entry.tool !== activeTool) return false;
+      if (!query) return true;
+      const haystack = [entry.tool, entry.kind, entry.key, entry.action, entry.desc, entry.file].join(" ").toLowerCase();
+      return haystack.includes(query);
+    }
+
+    async function copy(text, button) {
+      try {
+        await navigator.clipboard.writeText(text);
+        button.textContent = "Copie";
+      } catch {
+        const area = document.createElement("textarea");
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        area.remove();
+        button.textContent = "Copie";
+      }
+      setTimeout(() => button.textContent = "Copier", 900);
+    }
+
+    function render() {
+      const query = search.value.trim().toLowerCase();
+      const filtered = entries.filter((entry) => matches(entry, query));
+      count.textContent = filtered.length + " affiches";
+      grid.innerHTML = "";
+
+      if (filtered.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "Aucun raccourci trouve.";
+        grid.appendChild(empty);
+        return;
+      }
+
+      for (const entry of filtered) {
+        const card = document.createElement("article");
+        card.className = "card";
+        card.innerHTML = \`
+          <div class="card-head">
+            <div class="key"></div>
+            <div class="badge"></div>
+          </div>
+          <div class="action"></div>
+          <div class="desc"></div>
+          <div class="foot">
+            <span></span>
+            <button class="copy" type="button">Copier</button>
+          </div>
+        \`;
+        card.querySelector(".key").textContent = entry.key;
+        card.querySelector(".badge").textContent = entry.tool + " / " + entry.kind;
+        card.querySelector(".action").textContent = entry.action;
+        card.querySelector(".desc").textContent = entry.desc || " ";
+        card.querySelector(".foot span").textContent = entry.file + ":" + entry.line;
+        card.querySelector(".copy").addEventListener("click", (event) => copy(entry.action, event.currentTarget));
+        grid.appendChild(card);
+      }
+    }
+
+    search.addEventListener("input", render);
+    renderTabs();
+    render();
+  </script>
+</body>
+</html>`;
+}
+
+function openWeb(items: Entry[]) {
+  mkdirSync(webDir, { recursive: true });
+  writeFileSync(webFile, renderHtml(items), "utf8");
+  const url = `file://${webFile}`;
+  if (commandExists("xdg-open")) spawnSync("xdg-open", [url], { stdio: "ignore", detached: true });
+  console.log(webFile);
+}
+
+parseKnownFiles();
+const items = dedupe().sort((a, b) => `${a.tool} ${a.key}`.localeCompare(`${b.tool} ${b.key}`));
+const args = new Set(process.argv.slice(2));
+
+if (args.has("--web") || args.has("--html")) {
+  openWeb(items);
+  process.exit(0);
+}
+
+if (args.has("--json")) {
+  console.log(JSON.stringify(items.map((entry) => ({ ...entry, file: rel(entry.file) })), null, 2));
+  process.exit(0);
+}
+
+if (args.has("--list") || !commandExists("fzf")) {
+  printTable(items);
+  process.exit(0);
+}
+
+const lines = items.map((entry, index) => `${String(index).padStart(4, "0")}  ${format(entry)}`);
+const preview = [
+  "idx=$(echo {} | awk '{print $1}')",
+  `bun ${shellQuote(import.meta.path)} --json | jq -r ".[\\($idx)] | \\\"\\(.tool) / \\(.kind)\\\\nkey:    \\(.key)\\\\naction: \\(.action)\\\\nfile:   \\(.file):\\(.line)\\\\n\\\\n\\(.desc)\\\""` ,
+].join("; ");
+
+const fzf = spawnSync("fzf", [
+  "--ansi",
+  "--height", "90%",
+  "--layout", "reverse",
+  "--border",
+  "--prompt", "dotdash> ",
+  "--header", "Enter: copier action | Ctrl-O: ouvrir fichier",
+  "--preview", preview,
+  "--bind", `ctrl-o:execute-silent(idx=$(echo {} | awk '{print $1}'); file=$(bun ${shellQuote(import.meta.path)} --json | jq -r ".[\\($idx)].file"); line=$(bun ${shellQuote(import.meta.path)} --json | jq -r ".[\\($idx)].line"); ${process.env.EDITOR || "nvim"} "$HOME/\${file#~/}" +$line >/dev/tty)`,
+], {
+  input: lines.join("\n"),
+  encoding: "utf8",
+  stdio: ["pipe", "pipe", "inherit"],
+});
+
+if (fzf.status !== 0 || !fzf.stdout.trim()) process.exit(fzf.status || 0);
+
+const selectedIndex = Number(fzf.stdout.trim().slice(0, 4));
+const selected = items[selectedIndex];
+if (!selected) process.exit(1);
+
+copy(selected.action);
+console.log(`copie: ${selected.action}`);

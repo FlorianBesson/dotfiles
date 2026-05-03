@@ -11,4 +11,10 @@
 [difftool]
 	prompt = false
 [core]
-    hooksPath = "{{ .chezmoi.homeDir }}/.hooks"
+    hooksPath = "/home/ketzon/.hooks"
+[credential "https://github.com"]
+	helper = 
+	helper = !/usr/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/usr/bin/gh auth git-credential

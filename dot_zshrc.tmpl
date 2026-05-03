@@ -13,6 +13,10 @@ plugins=(
 
 source $ZSH/oh-my-zsh.sh
 
+# Keep the default theme style but show the path relative to $HOME with `~`.
+PROMPT="%(?:%{$fg_bold[green]%}%1{➜%} :%{$fg_bold[red]%}%1{➜%} ) %{$fg[cyan]%}%~%{$reset_color%}"
+PROMPT+=' $(git_prompt_info)'
+
 # FZF keybindings and completion (compatible avec fzf < 0.48)
 if [ -f /usr/share/doc/fzf/examples/key-bindings.zsh ]; then
     source /usr/share/doc/fzf/examples/key-bindings.zsh
@@ -68,6 +72,8 @@ alias tgpt='terminalgpt'
 alias tgpto='terminalgpt one-shot'
 alias tgptn='terminalgpt new'
 alias planning='v ~/.config/routine/routine.conf'
+alias cmds='~/.config/scripts/dotdash'
+alias cmdsv='~/.config/scripts/dotdash --web'
 alias ld='lazydocker'
 alias lg='lazygit'
 
@@ -78,11 +84,29 @@ alias gc='git commit'
 alias gp='git push'
 alias gl='git log --oneline --graph --decorate'
 
+gcap() {
+  if [ -z "$1" ]; then
+    echo 'usage: gcap "commit message"'
+    return 1
+  fi
+
+  git add -A
+  git commit -m "$1" || return 1
+  git push
+}
+
 # Utilities
 alias ls='ls --color=auto'
 alias ll='ls -lah'
 alias grep='grep --color=auto'
+alias k='kubectl'
 
 # org
 alias org-push='cd ~/notes && git add -A && git commit -m "sync $(date +%F-%H%M)" && git push'
 alias org-pull='cd ~/notes && git pull'
+
+# bun completions
+[ -s "/home/ketzon/.bun/_bun" ] && source "/home/ketzon/.bun/_bun"
+
+# opencode
+export PATH=/home/ketzon/.opencode/bin:$PATH
