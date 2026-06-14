@@ -81,6 +81,36 @@ require("lazy").setup({
   },
 
   {
+    "saghen/blink.cmp",
+    event = "InsertEnter",
+    version = "1.*",
+    dependencies = {
+      "L3MON4D3/LuaSnip",
+      "rafamadriz/friendly-snippets",
+    },
+    opts = {
+      keymap = { preset = "super-tab" },
+      snippets = { preset = "luasnip" },
+      appearance = {
+        nerd_font_variant = "mono",
+      },
+      completion = {
+        documentation = {
+          auto_show = true,
+          auto_show_delay_ms = 250,
+        },
+        ghost_text = { enabled = true },
+      },
+      signature = { enabled = true },
+      sources = {
+        default = { "lsp", "path", "snippets", "buffer" },
+      },
+      fuzzy = { implementation = "prefer_rust_with_warning" },
+    },
+    opts_extend = { "sources.default" },
+  },
+
+  {
     "neovim/nvim-lspconfig",
     event = { "BufReadPre", "BufNewFile" },
     dependencies = {
@@ -95,7 +125,7 @@ require("lazy").setup({
         },
       })
 
-      local capabilities = vim.lsp.protocol.make_client_capabilities()
+      local capabilities = require("blink.cmp").get_lsp_capabilities()
       local mason_bin = vim.fn.stdpath("data") .. "/mason/bin"
 
       vim.lsp.config.lua_ls = {
@@ -138,7 +168,7 @@ require("lazy").setup({
         highlight = { enable = true },
         indent = {
           enable = true,
-          disable = { "typescript", "typescriptreact", "javascript", "javascriptreact" },
+          disable = { "typescript", "typescriptreact", "javascript", "javascriptreact", "yaml" },
         },
       })
     end,
@@ -234,25 +264,20 @@ require("lazy").setup({
   "tpope/vim-unimpaired",
   "romainl/vim-qf",
 
-  {
-    "echasnovski/mini.pairs",
-    version = false,
-    event = "InsertEnter",
-    config = function()
-      require("mini.pairs").setup()
-    end,
-  },
+  require("k.plugins.autopairs"),
 })
 
 vim.o.background      = "light"
 pcall(vim.cmd, "colorscheme gruvbox")
+vim.cmd("filetype plugin indent on")
 
 vim.opt.clipboard      = "unnamedplus"
 vim.opt.number         = true
 vim.opt.relativenumber = true
 vim.opt.swapfile       = false
-vim.opt.tabstop        = 2
-vim.opt.shiftwidth     = 2
+vim.opt.tabstop        = 4
+vim.opt.shiftwidth     = 4
+vim.opt.softtabstop    = 4
 vim.opt.expandtab      = true
 vim.o.autowrite        = true
 vim.o.winborder        = "rounded"
@@ -263,20 +288,17 @@ vim.opt.cursorline     = true
 vim.opt.cursorcolumn   = false
 vim.opt.ignorecase     = true
 vim.opt.autoindent     = true
-vim.opt.smartindent    = true
+vim.opt.smartindent    = false
+vim.opt.copyindent     = true
+vim.opt.preserveindent = true
 vim.opt.termguicolors  = true
 vim.opt.undofile       = true
 vim.opt.completeopt    = { "menu", "menuone", "noselect", "popup" }
+vim.opt.pumheight      = 8
 
 vim.api.nvim_create_autocmd("LspAttach", {
   group = vim.api.nvim_create_augroup("lsp_config", { clear = true }),
   callback = function(args)
-    local client = assert(vim.lsp.get_client_by_id(args.data.client_id))
-    if client:supports_method("textDocument/completion") then
-      local chars = {}; for i = 33, 126 do table.insert(chars, string.char(i)) end
-      client.server_capabilities.completionProvider.triggerCharacters = chars
-      vim.lsp.completion.enable(true, client.id, args.buf, { autotrigger = true })
-    end
     local opts = { buffer = args.buf }
     vim.keymap.set("n", "K",    vim.lsp.buf.hover, opts)
     vim.keymap.set("n", "gd",   vim.lsp.buf.definition, opts)
@@ -293,30 +315,30 @@ vim.api.nvim_create_autocmd("LspAttach", {
 
 local ls = require("luasnip")
 ls.setup({ enable_autosnippets = true })
+require("luasnip.loaders.from_vscode").lazy_load()
 require("luasnip.loaders.from_lua").load({ paths = vim.fn.stdpath("config") .. "/snippets/" })
 
-vim.keymap.set({ "i", "s" }, "<Tab>", function()
-  if vim.fn.pumvisible() == 1 then
-    return vim.api.nvim_replace_termcodes("<C-n>", true, false, true)
-  elseif ls.expand_or_jumpable() then
-    ls.expand_or_jump()
-  else
-    return vim.api.nvim_replace_termcodes("<Tab>", true, false, true)
-  end
-end, { silent = true, expr = true })
 
-vim.keymap.set({ "i", "s" }, "<S-Tab>", function()
-  if ls.jumpable(-1) then ls.jump(-1)
-  else vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<S-Tab>", true, false, true), "n", false) end
-end, { silent = true })
-
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "yaml", "yml" },
+  callback = function()
+    vim.opt_local.autoindent = true
+    vim.opt_local.smartindent = false
+    vim.opt_local.cindent = false
+    vim.opt_local.expandtab = true
+    vim.opt_local.tabstop = 4
+    vim.opt_local.shiftwidth = 4
+    vim.opt_local.softtabstop = 4
+    vim.opt_local.indentexpr = ""
+    vim.opt_local.indentkeys = ""
+  end,
+})
 
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "html",
   callback = function()
     vim.opt_local.autoindent = true
-    vim.opt_local.smartindent = true
-    vim.opt_local.indentexpr = ""
+    vim.opt_local.smartindent = false
   end,
 })
 
@@ -328,15 +350,32 @@ vim.api.nvim_create_autocmd("FileType", {
 vim.api.nvim_create_autocmd("FileType", {
   pattern = { "typescript", "typescriptreact", "javascript", "javascriptreact" },
   callback = function()
-    vim.opt_local.indentexpr = ""
     vim.opt_local.autoindent = true
-    vim.opt_local.smartindent = true
+    vim.opt_local.smartindent = false
     vim.opt_local.cindent = false
   end,
 })
 
 local map = vim.keymap.set
 
+local function open_line_with_current_indent(below)
+  local row = vim.api.nvim_win_get_cursor(0)[1]
+  local line = vim.api.nvim_get_current_line()
+  local indent = line:match("^%s*") or ""
+  local insert_at = below and row or row - 1
+
+  vim.api.nvim_buf_set_lines(0, insert_at, insert_at, true, { indent })
+  if #indent == 0 then
+    vim.api.nvim_win_set_cursor(0, { insert_at + 1, 0 })
+    vim.cmd("startinsert")
+  else
+    vim.api.nvim_win_set_cursor(0, { insert_at + 1, #indent - 1 })
+    vim.cmd("startinsert!")
+  end
+end
+
+map("n", "o", function() open_line_with_current_indent(true) end, { desc = "Open line below with current indent" })
+map("n", "O", function() open_line_with_current_indent(false) end, { desc = "Open line above with current indent" })
 map("i", "jk", "<Esc>", { desc = "Escape" })
 map("n", "<leader>w", "<Cmd>update<CR>",       { desc = "Write" })
 map("n", "<leader>q", "<Cmd>quit<CR>",          { desc = "Quit" })
@@ -365,13 +404,30 @@ map({ "n", "v", "x" }, ":", ";",                { desc = "Repeat f/t" })
 map({ "n", "v", "x" }, "<leader>n", ":norm ",   { desc = "Normal cmd on selection" })
 map({ "v", "x" }, "<C-s>", [[:s/\V]],           { desc = "Substitute in selection" })
 map("n", "<leader>m", "`",                       { desc = "Jump to mark" })
+local diagnostic_float_opts = {
+  focusable = false,
+  close_events = { "BufLeave", "CursorMoved", "InsertEnter", "FocusLost" },
+  border = "rounded",
+  prefix = " ",
+}
+
 map("n", "<leader>d", function()
-  vim.diagnostic.open_float(nil, {
-    focusable = false,
-    close_events = { "BufLeave", "CursorMoved", "InsertEnter", "FocusLost" },
-    border = "rounded", source = "always", prefix = " ", scope = "cursor",
-  })
-end, { desc = "Show diagnostic float" })
+  vim.diagnostic.open_float(0, vim.tbl_extend("force", diagnostic_float_opts, {
+    scope = "line",
+    source = false,
+    header = "",
+    format = function(diagnostic)
+      return (diagnostic.message:gsub("\n.*", ""))
+    end,
+  }))
+end, { desc = "Show diagnostic" })
+
+map("n", "<leader>D", function()
+  vim.diagnostic.open_float(0, vim.tbl_extend("force", diagnostic_float_opts, {
+    scope = "cursor",
+    source = "always",
+  }))
+end, { desc = "Show full diagnostic" })
 map("n", "<C-q>", ":copen<CR>", { silent = true })
 map("n", "<leader>c", "1z=")
 

@@ -75,7 +75,7 @@
 
 (map! "C-c c" #'org-capture)
 ;; font doom
-(setq doom-font (font-spec :size 20))
+(setq doom-font (font-spec :size 24))
 
 
 
@@ -325,5 +325,3 @@ WEEKLY SHUTDOWN [/]
 (map! :after evil-org-agenda
       :map org-agenda-mode-map
       :m "D" #'my/agenda-to-daily-planner)
-
-

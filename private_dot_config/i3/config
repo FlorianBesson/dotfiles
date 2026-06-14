@@ -249,8 +249,13 @@ mode "$mode_gaps_outer" {
 }
 
 bindsym $mod+z exec --no-startup-id rofi -show drun
+bindsym $mod+Shift+a exec --no-startup-id ~/.config/scripts/rofi-ai.sh
+bindsym $mod+Shift+o exec --no-startup-id /home/ketzon/.local/bin/lt-check-selection
+bindsym $mod+Shift+d exec --no-startup-id ~/.config/scripts/discord-focus-block toggle
 
-exec_always feh --bg-scale /home/ketzon/Images/wallpapers/cat.png
+# exec_always feh --bg-scale /home/ketzon/Images/wallpapers/cat.png
+# exec_always feh --bg-scale /home/ketzon/Images/wallpapers/lain.jpg
+exec_always feh --bg-scale /home/ketzon/Images/wallpapers/square.jpg
 
 
 # Sreen brightness controls
@@ -284,8 +289,6 @@ exec --no-startup-id xautolock -corners -000 -time 10 -locker 'i3lock -c 000000'
 bindsym Shift+$mod+Pause exec i3lock -c 000000 && systemctl suspend
 bindsym $mod+Pause exec i3lock -c 000000 
 
-exec --no-startup-id /usr/bin/setxkbmap -option "ctrl:nocaps"
-
 # sudo timedatectl set-ntp true
 
 
@@ -316,6 +319,8 @@ exec_always --no-startup-id conky -c ~/.config/conky/routine.conky
 exec --no-startup-id ibus-daemon -drx
 exec --no-startup-id fcitx5
 
+# Make Caps Lock behave as an extra Control key on each i3 start/reload.
+exec_always --no-startup-id sh -c 'sleep 1; setxkbmap -layout us -option -option ctrl:nocaps'
+
 bindsym $mod+i exec "ibus engine mozc-jp"
 bindsym $mod+u exec "ibus engine xkb:us::eng"
-exec_always --no-startup-id setxkbmap us

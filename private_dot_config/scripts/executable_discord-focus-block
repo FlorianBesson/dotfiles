@@ -1,0 +1,86 @@
+#!/bin/sh
+set -eu
+
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+pidfile="$runtime_dir/discord-focus-block.pid"
+
+notify() {
+	if command -v notify-send >/dev/null 2>&1; then
+		notify-send "$@" 2>/dev/null || true
+	fi
+}
+
+is_running() {
+	[ -s "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null
+}
+
+kill_clients() {
+	for name in discord Discord vesktop webcord equicord; do
+		pkill -TERM -x "$name" 2>/dev/null || true
+	done
+
+	sleep 0.4
+
+	for name in discord Discord vesktop webcord equicord; do
+		pkill -KILL -x "$name" 2>/dev/null || true
+	done
+}
+
+start_block() {
+	if is_running; then
+		notify "Focus" "Discord est deja bloque."
+		exit 0
+	fi
+
+	(
+		while :; do
+			kill_clients
+			sleep 2
+		done
+	) >/dev/null 2>&1 &
+
+	echo "$!" > "$pidfile"
+	notify "Focus" "Discord bloque pour cette session."
+}
+
+stop_block() {
+	if is_running; then
+		kill "$(cat "$pidfile")" 2>/dev/null || true
+	fi
+
+	rm -f "$pidfile"
+	notify "Focus" "Discord debloque."
+}
+
+case "${1:-toggle}" in
+	toggle)
+		if is_running; then
+			stop_block
+		else
+			kill_clients
+			start_block
+		fi
+		;;
+	kill)
+		kill_clients
+		notify "Focus" "Discord coupe."
+		;;
+	on)
+		kill_clients
+		start_block
+		;;
+	off)
+		stop_block
+		;;
+	status)
+		if is_running; then
+			echo "blocked"
+		else
+			echo "unblocked"
+		fi
+		;;
+	*)
+		echo "usage: $0 [toggle|kill|on|off|status]" >&2
+		exit 2
+		;;
+esac
