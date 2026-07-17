@@ -6,7 +6,7 @@
       org-agenda-skip-scheduled-if-done t)
 
 (setq org-gcal-client-id "97146172973-noealff3kucah5oo7qbr6f19gsb0sbmm.apps.googleusercontent.com"
-      org-gcal-client-secret "{{ .org_gcal_client_secret }}"
+      org-gcal-client-secret "{{ index . "org_gcal_client_secret" | default "" }}"
       org-gcal-fetch-file-alist '(("bessonflorian50@gmail.com" . "~/notes/org/gcal.org")))
 
 ;; theme
