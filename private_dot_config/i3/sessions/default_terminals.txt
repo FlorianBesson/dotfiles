@@ -1,1 +1,0 @@
-TERMINAL:/home/florian/.config/i3-resurrect

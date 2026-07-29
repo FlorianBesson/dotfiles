@@ -106,7 +106,7 @@ alias org-push='cd ~/notes && git add -A && git commit -m "sync $(date +%F-%H%M)
 alias org-pull='cd ~/notes && git pull'
 
 # bun completions
-[ -s "/home/ketzon/.bun/_bun" ] && source "/home/ketzon/.bun/_bun"
+[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
 # opencode
-export PATH=/home/ketzon/.opencode/bin:$PATH
+export PATH="$HOME/.opencode/bin:$PATH"
