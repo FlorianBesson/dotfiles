@@ -101,12 +101,18 @@ alias ll='ls -lah'
 alias grep='grep --color=auto'
 alias k='kubectl'
 
+# Kubernetes completion, including the `k` alias above.
+if (( $+commands[kubectl] )); then
+  source <(kubectl completion zsh)
+  compdef _kubectl k
+fi
+
 # org
 alias org-push='cd ~/notes && git add -A && git commit -m "sync $(date +%F-%H%M)" && git push'
 alias org-pull='cd ~/notes && git pull'
 
 # bun completions
-[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
+[ -s "/home/ketzon/.bun/_bun" ] && source "/home/ketzon/.bun/_bun"
 
 # opencode
-export PATH="$HOME/.opencode/bin:$PATH"
+export PATH=/home/ketzon/.opencode/bin:$PATH

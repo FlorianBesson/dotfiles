@@ -1,7 +1,14 @@
 return {
   "folke/flash.nvim",
   event = "VeryLazy",
-  opts = {},
+  opts = {
+    -- Auto-centrage après jump
+    action = function(match, state)
+      state:hide()
+      vim.api.nvim_win_set_cursor(0, match.pos)
+      vim.cmd("normal! zz") -- Centrer après jump
+    end,
+  },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash").jump() end, desc = "Flash" },
     { "S", mode = { "n", "x", "o" }, function() require("flash").treesitter() end, desc = "Flash Treesitter" },

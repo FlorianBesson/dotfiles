@@ -206,6 +206,40 @@
 (defvar my/wake-up-time nil
   "Heure de réveil saisie lors de la création du daily planner.")
 
+(defvar my/daily-review nil
+  "Bilan de la veille saisi lors de la création du daily planner.")
+
+(defun my/read-daily-review ()
+  "Demande le bilan de la veille et le formate pour le daily planner."
+  (let ((questions
+         '(("Did I use porn yesterday?" . yes)
+           ("Did I exercise yesterday?" . no)
+           ("Did I eat as expected yesterday?" . no)
+           ("Did I concentrate on my tasks yesterday?" . no)
+           ("Did I feel energized yesterday?" . no)
+           ("Did I take a chance to truly rest yesterday?" . no)
+           ("Did I talk to a loved one yesterday?" . no)
+           ("If I had died yesterday, would I have been proud of my last day?" . no))))
+    (setq my/daily-review
+          (concat
+           "Review of yesterday:\n\n"
+           (mapconcat
+            (lambda (question)
+              (let* ((prompt (car question))
+                     (reason-when (cdr question))
+                     (answer (y-or-n-p (concat prompt " ")))
+                     (needs-reason (if (eq reason-when 'yes)
+                                       answer
+                                     (not answer)))
+                     (reason (when needs-reason
+                               (read-string "Why? "))))
+                (concat "- " prompt " " (if answer "Yes" "No")
+                        (if needs-reason
+                            (concat "\n  Reason: " reason)
+                          ""))))
+            questions
+            "\n\n")))))
+
 (defun my/open-daily-planner ()
   "Ouvre le daily planner. Prompt l'heure de réveil seulement si l'entrée du jour n'existe pas encore."
   (interactive)
@@ -222,6 +256,7 @@
         (if (string-match-p "^[0-9]\\{2\\}:[0-9]\\{2\\}$" input)
             (progn
               (setq my/wake-up-time input)
+              (my/read-daily-review)
               (org-capture nil "d"))
           (user-error "Format invalide, attendu HH:MM"))))))
 
@@ -307,6 +342,8 @@ WEEKLY SHUTDOWN [/]
           ("d" "Daily Planner" plain
            (function my/daily-planner-tree)
            " Réveil: %(or my/wake-up-time \"?\")
+
+ %(or my/daily-review \"\")
 
  Urgent:
 

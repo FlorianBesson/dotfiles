@@ -11,7 +11,7 @@
 [difftool]
 	prompt = false
 [core]
-	hooksPath = ~/.hooks
+    hooksPath = "/home/ketzon/.hooks"
 [credential "https://github.com"]
 	helper = 
 	helper = !/usr/bin/gh auth git-credential
